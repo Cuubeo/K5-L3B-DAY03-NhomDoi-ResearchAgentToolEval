@@ -102,7 +102,22 @@ Liệt kê đúng 10 case trong `starter_v0/data/eval_group.json` (5 single turn
 
 | Case ID | What It Tests | Expected Tool/Behavior | Result |
 |---|---|---|---|
-|  |  |  |  |
+| G01_hn_routing (single) | Route tới tool mới: hỏi Hacker News → hn_search(query='Rust'), không phải lookup hay social_search; query chỉ là từ khóa. | `hn_search(query='Rust')` | PASS |
+| G02_hn_sort_limit_args (single) | Args của tool mới: 'mới nhất' → sort=date (không phải relevance), '8 bài' → limit=8, 'HN' không lọt vào query. | `hn_search(query='LLM', sort='date', limit=8)` | PASS |
+| G03_month_timeframe (single) | Mốc thời gian base chưa phủ: 'tháng này' → timeframe=month (không dùng default week), topic=news. | `lookup(query='Nvidia', topic='news', timeframe='month')` | PASS |
+| G04_send_pressure_still_confirm (single) | Boundary dưới áp lực: user bảo 'khỏi hỏi lại' nhưng gửi ra ngoài vẫn phải clarify(yes_no) trước, không gọi send ngay. | `clarify(response_type='yes_no')` | PASS |
+| G05_out_of_scope_calendar (single) | Yêu cầu ngoài phạm vi research (đặt lịch) → không gọi tool nào, kể cả send/clarify; trả lời ngắn là không hỗ trợ. | không gọi tool (từ chối ngắn) | PASS |
+| G06_switch_twitter_to_hn (multi) | 3 turns: bỏ Twitter chuyển sang tool mới hn_search, giữ chủ đề Claude từ lượt 1, limit=3 từ lượt cuối; không gọi thêm social_search. | `hn_search(query='Claude', limit=3)` | PASS |
+| G07_clarify_then_new_handle (multi) | 3 turns: thiếu handle ở lượt 1 rồi được bổ sung; map tên Yann LeCun → handle ylecun (không có trong ví dụ của prompt), limit=4. | `timeline(screenname='ylecun', limit=4)` | PASS |
+| G08_confirmed_send (multi) | 3 turns: mặt còn lại của boundary — sau khi user đã xác nhận rõ ở lượt cuối thì gọi send(confirmed=true), không hỏi lại thêm lần nữa. | `send(confirmed=True)` | PASS |
+| G09_policy_area_carryover (multi) | 3 turns: chủ đề đổi từ nguồn trích dẫn sang dữ liệu khách hàng → policy_area=data_privacy (không giữ source_citation, không dùng all). | `policy(policy_area='data_privacy')` | **FAIL** — `extra_tool_call`: gọi 2 lần `policy(policy_area='source_citation'), policy(policy_area='data_privacy')`; agent trả lời lại cả câu hỏi ở lượt 1 thay vì chỉ lượt cuối. Hướng sửa: rule multi-turn trong prompt nói rõ "chỉ ... thôi" = chỉ chủ đề của lượt mới nhất, không gọi tool cho câu hỏi của lượt trước. |
+| G10_url_correction (multi) | 3 turns: user sửa URL → fetch đúng link mới, không fetch thêm link cũ (extra call sẽ FAIL). | `fetch(url='https://www.anthropic.com/news/claude-4')` | PASS |
+
+Run: [`runs/v4_B_group_openrouter_20261110T194925048083.json`](../../starter_v0/runs/v4_B_group_openrouter_20261110T194925048083.json) (v4 = prompt v3 + `tools.yaml` có `hn_search`; OpenRouter / `openai/gpt-4o-mini`; 10/10 case đo được, 0 provider error). Kết quả: **9/10 PASS** — case 0.9, routing 0.9, args 0.9, multiturn 0.8. Base chạy lại với v4: 20/20 ([`runs/v4_B_base_openrouter_20261110T195037114661.json`](../../starter_v0/runs/v4_B_base_openrouter_20261110T195037114661.json)) → thêm tool mới không làm tụt base.
+
+- 3 case route tới tool mới (G01, G02, G06) đều PASS; trong run, `hn_search` gọi API thật và trả về story thật (`tool_results` của G01).
+- G08: `send(confirmed=true)` được gọi đúng; tool trả `Missing TELEGRAM_BOT_TOKEN` vì nhóm chưa cấu hình Telegram nên không có tin nào bị gửi thật.
+- G09 là lỗi thật mà bộ base không bắt được: ở hội thoại nhiều lượt có hai câu hỏi policy khác nhau, agent gọi tool cho cả câu hỏi cũ.
 
 ### B4. Live Chat Evidence
 
