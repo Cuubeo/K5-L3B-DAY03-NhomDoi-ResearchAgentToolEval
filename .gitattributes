@@ -1,0 +1,4 @@
+# Keep LF endings so prompt_hash/tools_hash stay stable across checkouts on Windows
+starter_v0/artifacts/*.md text eol=lf
+starter_v0/artifacts/*.yaml text eol=lf
+starter_v0/artifacts/history/*.md text eol=lf
