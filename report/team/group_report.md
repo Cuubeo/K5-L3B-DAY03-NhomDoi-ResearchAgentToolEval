@@ -52,20 +52,24 @@ Ví dụ: "Research agent: tìm tin theo từ khóa / theo tài khoản, đọc 
 
 > Tóm tắt các thay đổi chính trong `starter_v0/artifacts/system_prompt.md` và `starter_v0/artifacts/tools.yaml`, và tool mới nhóm viết (tên, làm gì, khi nào agent nên gọi).
 
--
+- **`system_prompt.md` (v1, v3):** bỏ 3 chỉ dẫn xấu của starter (đoán handle/URL thay vì hỏi; gửi ngay không xác nhận; ép một tool một bước). Thêm các mục: *Ask instead of guessing* (thiếu thông tin → `clarify(text)`, không bịa args), *Confirm before sending* (gửi/đăng → `clarify(yes_no)` trước, chỉ `send(confirmed=true)` sau khi user đồng ý), *Stay in scope* (toán/code/ngoài phạm vi và câu hỏi meta → không gọi tool), *Routing* (intent → tool, map tên → handle, `policy_area`, nhiều nguồn/nhiều link → gọi đủ tool), *Multi-turn* (chỉ xử lý lượt cuối, carry-over giá trị, áp dụng lời sửa).
+- **`tools.yaml` (v2):** viết lại description của cả 10 tool theo mẫu *làm gì / USE khi / DO NOT use khi*, và mô tả convention từng arg (`lookup.query` chỉ từ khóa, `topic=news`, `timeframe` theo mốc thời gian; `screenname` không có `@`; `search_type=Top` khi "top/phổ biến"; `fetch.url` đúng link user đưa). `send` ghi rõ boundary xác nhận. Tên tool, tham số, enum, default giữ nguyên → `tests/test_tool_contract.py` vẫn xanh.
+- Tool mới: (CP3 — chưa làm).
 
 ## 4. Kết quả — PHẦN B: Chi tiết và bằng chứng
 
 ### B1. Version Evidence
 
-Lấy từ `starter_v0/artifacts/version_log.csv` và `starter_v0/runs/*.json`. Chỉ dùng run có `provider_error_cases == 0` và `measured_cases == total_cases`.
+Lấy từ `starter_v0/artifacts/version_log.csv` và `starter_v0/runs/*.json`. Chỉ dùng run có `provider_error_cases == 0` và `measured_cases == total_cases`. Tất cả run dưới đây: OpenRouter / `openai/gpt-4o-mini`, 0 provider error, đủ case. Mỗi version đổi đúng một artifact (xem `prompt_hash`/`tools_hash` trong log).
+
+Ghi chú trung thực: ở v1, R03 và R13 (lỗi arg `lookup` của v0) tự pass dù chưa sửa `tools.yaml` — có thể một phần do dao động của model, nên v2 vẫn thêm convention args để kết quả ổn định. Base đạt trần 1.0 từ v2, vì vậy v3 được đo thêm trên `data/eval_research_extension.json`; v2 trên extension chạy bằng bản sao prompt `artifacts/history/system_prompt_v2.md` (cùng `prompt_hash` với v2).
 
 | Version | Changed Artifact | Hypothesis | Metric Before | Metric After | Run File |
 |---|---|---|---:|---:|---|
 | v0 | baseline (chưa sửa `system_prompt.md`, `tools.yaml`) | Baseline, chưa có giả thuyết — `v0+peb1c8179815b+te69bc53ed884` | n/a | case 0.65 (13/20) · routing 0.75 · args 0.65 · multiturn 1.0 | [`runs/v0_B_base_openrouter_20261110T184255677399.json`](../../starter_v0/runs/v0_B_base_openrouter_20261110T184255677399.json) |
-| v1 |  |  |  |  |  |
-| v2 |  |  |  |  |  |
-| v3 |  |  |  |  |  |
+| v1 | `system_prompt.md` | Bỏ 3 chỉ dẫn xấu của starter (đoán thay vì hỏi, gửi không xác nhận, ép một tool/một bước) + rule clarify / xác nhận trước `send` / ngoài phạm vi → sửa R08 R10 R11 R12 R14 | base 0.65 (13/20) | base 0.95 (19/20) · routing 1.0 · args 0.95 | [`v1_B_base_openrouter_20261110T191751743875.json`](../../starter_v0/runs/v1_B_base_openrouter_20261110T191751743875.json) |
+| v2 | `tools.yaml` | Description mọi tool nói làm gì / khi nào dùng / khi nào không + convention args; `clarify` dùng `yes_no` cho mọi yêu cầu gửi/đăng; boundary `send(confirmed=true)` → sửa R12 | base 0.95 (19/20) | base 1.0 (20/20) | [`v2_B_base_openrouter_20261110T192312504676.json`](../../starter_v0/runs/v2_B_base_openrouter_20261110T192312504676.json); extension (mốc so với v3): [`v2_B_extension_openrouter_20261110T192621952762.json`](../../starter_v0/runs/v2_B_extension_openrouter_20261110T192621952762.json) = 0.8 |
+| v3 | `system_prompt.md` | Thêm rule routing theo intent (gồm `policy`/`policy_area`, `papers`, `paper_text`, nhiều nguồn → gọi đủ tool) + rule multi-turn → sửa E01, E06 của bộ extension mà không làm tụt base | base 1.0 · extension 0.8 (8/10) | base 1.0 (20/20) · extension **1.0 (10/10)** | [`v3_B_base_openrouter_20261110T192730023767.json`](../../starter_v0/runs/v3_B_base_openrouter_20261110T192730023767.json); [`v3_B_extension_openrouter_20261110T193653723147.json`](../../starter_v0/runs/v3_B_extension_openrouter_20261110T193653723147.json) |
 
 ### B2. Failure Analysis
 
