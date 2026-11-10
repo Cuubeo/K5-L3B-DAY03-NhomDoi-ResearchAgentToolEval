@@ -2,16 +2,16 @@
 
 ## Thông tin nhóm
 
-- Tên nhóm:
-- Lớp: L3A / L3B
-- Repo nhóm: `K5-L3A-DAY03-TenNhom-ResearchAgentToolEval` hoặc `K5-L3B-DAY03-TenNhom-ResearchAgentToolEval` (xem [SUBMISSION.md](SUBMISSION.md))
+- Tên nhóm: NhomDoi
+- Lớp: L3B
+- Repo nhóm: `K5-L3B-DAY03-NhomDoi-ResearchAgentToolEval`
 - URL repo, nhánh nộp, commit chốt:
 
 ## Thành viên
 
 | STT | Họ tên | MSSV | Email | GitHub | Vai trò |
 | --: | ------ | ---- | ----- | ------ | ------- |
-|   1 |        |      |       |        |         |
+|   1 |Bùi Phước Anh|2A202604102|cuubui2004@gmail.com|        |         |
 |   2 |        |      |       |        |         |
 
 ## Cá nhân

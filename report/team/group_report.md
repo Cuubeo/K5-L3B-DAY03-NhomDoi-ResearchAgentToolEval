@@ -10,7 +10,7 @@
 
 - Tên nhóm:
 - Thành viên và phân công: xem [TEAM.md](../../TEAM.md)
-- Provider/model dùng cho v0–v3:
+- Provider/model dùng cho v0–v3: OpenRouter / `openai/gpt-4o-mini` (model mặc định của `providers/openrouter_provider.py`)
 
 ## 2. Mục tiêu và cách tiếp cận — PHẦN A: Giới thiệu agent
 
@@ -62,18 +62,28 @@ Lấy từ `starter_v0/artifacts/version_log.csv` và `starter_v0/runs/*.json`. 
 
 | Version | Changed Artifact | Hypothesis | Metric Before | Metric After | Run File |
 |---|---|---|---:|---:|---|
-| v0 | baseline |  |  |  |  |
+| v0 | baseline (chưa sửa `system_prompt.md`, `tools.yaml`) | Baseline, chưa có giả thuyết — `v0+peb1c8179815b+te69bc53ed884` | n/a | case 0.65 (13/20) · routing 0.75 · args 0.65 · multiturn 1.0 | [`runs/v0_B_base_openrouter_20261110T184255677399.json`](../../starter_v0/runs/v0_B_base_openrouter_20261110T184255677399.json) |
 | v1 |  |  |  |  |  |
 | v2 |  |  |  |  |  |
 | v3 |  |  |  |  |  |
 
 ### B2. Failure Analysis
 
-Lấy từ `results[*].result.failures` trong run JSON.
+Lấy từ `results[*].result.failures` trong run JSON [`runs/v0_B_base_openrouter_20261110T184255677399.json`](../../starter_v0/runs/v0_B_base_openrouter_20261110T184255677399.json) (OpenRouter / `openai/gpt-4o-mini`; 20/20 case đo được, `provider_error_cases = 0`). v0 FAIL 7/20 case; 6 case multi turn PASS hết.
+
+Cột *Failure Type* ghi loại lỗi nhóm gán theo hành vi quan sát được (trong ngoặc là `case_failure_type` gán sẵn trong `eval_base.json` → `observed_mismatch` do `run_eval.py` ghi).
 
 | Case ID | Failure Type | Actual Tool Calls | What Failed | Fix |
 |---|---|---|---|---|
-|  |  |  |  |  |
+| R03_web_news_routing | `wrong_arg_value` (case: wrong_tool → wrong_arg_value) | `lookup(query="AI news", topic="news", timeframe="day", max_results=5)` | Chọn đúng tool `lookup` và đúng `topic`/`timeframe`, nhưng nhét chữ "news" vào `query` (`expected 'AI', got 'AI news'`). | `tools.yaml`: mô tả `lookup.query` = chỉ từ khóa chủ đề, không thêm "news/tin tức/hôm nay"; việc lọc tin đã do `topic=news` + `timeframe` đảm nhận. |
+| R13_parallel_web_and_tweets | `wrong_arg_value` (case: wrong_tool → wrong_arg_value) | `lookup(query="AI news", timeframe="day", max_results=5)` + `social_search(query="AI", search_type="Latest", limit=5)` | Routing đúng (gọi song song cả 2 tool), nhưng `lookup` sai 2 arg: `query` thêm "news" và thiếu `topic="news"` → rơi về default `general`. | `tools.yaml`: như R03, và ghi rõ "tin tức / thời sự / hôm nay → `topic=news`"; prompt: rule routing "web news → `lookup` với `topic=news`, `timeframe` theo mốc thời gian". |
+| R08_out_of_scope | `out_of_scope` (case: out_of_scope → unexpected_tool_call) | `send(text="Nguyên hàm của x^2 là x^3/3 + C ...")` | Câu toán ngoài phạm vi research nhưng agent vẫn trả lời và còn **gửi** đáp án qua `send` (không xác nhận). Đáng lẽ không gọi tool, từ chối/định hướng lại. | `system_prompt.md`: thêm phạm vi agent (research tin/tweet/URL/paper) + rule "ngoài phạm vi → không gọi tool, từ chối ngắn"; bỏ câu "Always finish the request in a single step. Pick one tool". |
+| R14_out_of_scope_coding | `out_of_scope` (case: out_of_scope → unexpected_tool_call) | `send(text="def fibonacci(n): ...")` | Giống R08: viết code ngoài phạm vi rồi đẩy luôn qua `send`. | Như R08; thêm vào `send.description`: chỉ dùng khi user yêu cầu gửi/đăng **và** đã xác nhận, không dùng để trả lời câu hỏi. |
+| R10_missing_handle | `missing_info` (case: missing_info → missing_tool_call) | `timeline(screenname="sama")` | User không nói tweet của ai; agent tự đoán Sam Altman thay vì hỏi lại. Do prompt cố ý dặn "pick a well-known account like Sam Altman". | `system_prompt.md`: bỏ chỉ dẫn đoán; thêm rule "thiếu handle/URL/đối tượng → gọi `clarify(response_type="text")`". |
+| R11_missing_url | `missing_info` (case: missing_info → missing_tool_call) | `fetch(url="https://example.com/article")` | "Bài viết này" không có URL; agent bịa URL `example.com`. Do prompt dặn "assume a likely URL and read it". | Như R10; `tools.yaml`: `fetch.url` chỉ nhận URL user đưa ra, không tự tạo URL. |
+| R12_confirm_before_send | `wrong_boundary` (case: wrong_boundary → missing_tool_call) | `send(text="Bản tin này đã được đăng lên Telegram.")` | Gửi ngay không hỏi xác nhận (và nội dung gửi là câu bịa). Do prompt dặn "just go ahead and do it". | `system_prompt.md`: bỏ chỉ dẫn gửi ngay; rule "trước khi `send` phải `clarify(response_type="yes_no")`, chỉ `send(confirmed=true)` sau khi user đồng ý"; ghi boundary này trong `send.description`. |
+
+**Tóm tắt nguyên nhân:** 5/7 case FAIL (R08, R10, R11, R12, R14) đến từ các chỉ dẫn xấu cố ý trong `system_prompt.md` (đoán thay vì hỏi, gửi không xác nhận, ép một tool một bước) → sửa ở prompt. 2/7 case (R03, R13) là lỗi convention arg của `lookup` do description mơ hồ → sửa ở `tools.yaml`. Đây là cơ sở cho giả thuyết v1–v3.
 
 ### B3. Team Eval Cases
 
@@ -144,7 +154,8 @@ Lỗi đặc thù của model nhỏ (đếm từ run JSON):
 
 > Khó khăn chính và cách nhóm xử lý. Nếu gặp lỗi kỹ thuật (provider lỗi, hết quota API, tool không chạy), mô tả lỗi và dẫn bằng chứng: run JSON, log, ảnh chụp.
 
--
+- Setup Windows: Python mới nhất không có wheel PyYAML (`Failed building wheel for PyYAML`) → chuyển sang Python 3.12 64-bit, cài `requirements.txt` bằng `py -3.12 -m pip`.
+- Gemini: model mặc định `gemini-3.8-flash` trả `503 UNAVAILABLE` (quá tải), `gemini-2.5-flash` trả `404` (không mở cho tài khoản mới) → không dùng được làm baseline; chuyển sang OpenRouter `openai/gpt-4o-mini`. Run v0 dùng làm bằng chứng có `provider_error_cases = 0`.
 
 ## 6. Tổng hợp đóng góp
 
