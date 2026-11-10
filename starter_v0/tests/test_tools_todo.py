@@ -11,6 +11,7 @@ Rules:
 from __future__ import annotations
 
 import pytest
+import requests
 
 from conftest import FakeResponse  # noqa: F401  (you will need it)
 from tools import TOOL_FUNCTIONS  # noqa: F401
@@ -110,13 +111,68 @@ def test_policy_instruction_like_lines_go_to_untrusted_text() -> None:
 #   2. bad / missing input from the model (empty string, wrong type, out-of-enum value)
 #   3. failure path (missing key, HTTP error, timeout) -> returns error dict, does not raise
 
-def test_my_new_tool_happy_path() -> None:
-    pytest.skip(TODO)
+hn_search = TOOL_FUNCTIONS["hn_search"]
+
+HN_HITS = {"hits": [
+    {"objectID": "101", "title": "Rust 2.0 released", "url": "https://blog.rust-lang.org/2026/rust-2",
+     "points": 512, "num_comments": 230, "author": "steve", "created_at": "2026-11-10T08:00:00Z"},
+    {"objectID": "102", "title": "Ask HN: Is Rust worth learning?", "url": None,
+     "points": 40, "num_comments": 88, "author": "newbie", "created_at": "2026-11-09T10:00:00Z"},
+    {"title": "hit without id is skipped", "url": "https://example.com/x"},
+]}
 
 
-def test_my_new_tool_bad_input_from_model() -> None:
-    pytest.skip(TODO)
+def test_hn_search_happy_path_sends_request_and_maps_stories(fake_http) -> None:
+    calls = fake_http(FakeResponse(HN_HITS))
+
+    result = hn_search(query="Rust", sort="date", limit=3)
+
+    assert len(calls) == 1
+    assert calls[0]["method"] == "GET"
+    assert calls[0]["url"] == "https://hn.algolia.com/api/v1/search_by_date"
+    assert calls[0]["params"] == {"query": "Rust", "tags": "story", "hitsPerPage": 3}
+    assert "error" not in result
+    assert [item["title"] for item in result["items"]] == ["Rust 2.0 released", "Ask HN: Is Rust worth learning?"]
+    first, ask_hn = result["items"]
+    assert first["url"] == "https://blog.rust-lang.org/2026/rust-2"
+    assert first["source"] == "blog.rust-lang.org"
+    assert first["discussion_url"] == "https://news.ycombinator.com/item?id=101"
+    assert first["summary"] == "512 points · 230 comments · by steve"
+    # Ask HN has no external link -> falls back to the HN discussion page
+    assert ask_hn["url"] == "https://news.ycombinator.com/item?id=102"
+    assert ask_hn["source"] == "news.ycombinator.com"
 
 
-def test_my_new_tool_failure_returns_error_dict() -> None:
-    pytest.skip(TODO)
+def test_hn_search_bad_input_from_model(fake_http) -> None:
+    calls = fake_http(FakeResponse(HN_HITS))
+
+    # Empty / whitespace / wrong-type query -> error dict, and no HTTP request is made.
+    for bad_query in ["", "   ", None, 123]:
+        result = hn_search(query=bad_query)
+        assert result["tool"] == "hn_search"
+        assert result["error"] == "ValueError"
+    assert calls == []
+
+    # Out-of-enum sort falls back to relevance; out-of-range / non-numeric limit is clamped.
+    hn_search(query="LLM", sort="Top", limit=500)
+    hn_search(query="LLM", sort=None, limit="abc")
+    hn_search(query="LLM", limit=0)
+    assert calls[0]["url"] == "https://hn.algolia.com/api/v1/search"
+    assert calls[0]["params"]["hitsPerPage"] == 20
+    assert calls[1]["url"] == "https://hn.algolia.com/api/v1/search"
+    assert calls[1]["params"]["hitsPerPage"] == 5
+    assert calls[2]["params"]["hitsPerPage"] == 1
+
+
+def test_hn_search_failure_returns_error_dict(fake_http) -> None:
+    # HTTP error from the API -> error dict, does not raise.
+    fake_http(FakeResponse({}, status_code=503))
+    result = hn_search(query="Rust")
+    assert result == {"tool": "hn_search", "error": "HTTPError", "message": "HTTP 503"}
+
+    # Network failure (timeout) -> error dict, does not raise.
+    fake_http(requests.Timeout("read timed out"))
+    result = hn_search(query="Rust")
+    assert result["tool"] == "hn_search"
+    assert result["error"] == "Timeout"
+    assert "timed out" in result["message"]

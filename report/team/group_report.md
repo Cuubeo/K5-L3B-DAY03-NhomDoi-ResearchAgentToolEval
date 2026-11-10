@@ -36,9 +36,16 @@ Ví dụ: "Research agent: tìm tin theo từ khóa / theo tài khoản, đọc 
 
 | Tên tool | Làm được gì | Tool mới nhóm thêm? |
 |---|---|---|
-| clarify | hỏi lại người dùng khi thiếu thông tin | không |
-|  |  |  |
-|  |  |  |
+| clarify | hỏi lại người dùng khi thiếu thông tin hoặc xin xác nhận (yes/no) trước khi gửi | không |
+| timeline | lấy tweet mới nhất của một tài khoản X cụ thể | không |
+| social_search | tìm tweet theo chủ đề / từ khóa (Latest / Top) | không |
+| lookup | tìm web và tin tức (topic news/general, timeframe day/week/month/year) | không |
+| fetch | đọc nội dung một URL người dùng đưa | không |
+| format | trình bày kết quả thành bản tin (brief, sections, bullets, thread, daily_ai_vn) | không |
+| send | đăng bản tin lên Telegram — chỉ sau khi user xác nhận | không |
+| policy | tra cứu policy nội bộ công ty | không |
+| papers / paper_text | tìm paper arXiv / đọc text một paper arXiv | không |
+| **hn_search** | tìm story trên Hacker News theo từ khóa (relevance hoặc mới nhất), không cần API key | **có** |
 
 ### A3. Câu hỏi mẫu để thử
 
@@ -54,7 +61,7 @@ Ví dụ: "Research agent: tìm tin theo từ khóa / theo tài khoản, đọc 
 
 - **`system_prompt.md` (v1, v3):** bỏ 3 chỉ dẫn xấu của starter (đoán handle/URL thay vì hỏi; gửi ngay không xác nhận; ép một tool một bước). Thêm các mục: *Ask instead of guessing* (thiếu thông tin → `clarify(text)`, không bịa args), *Confirm before sending* (gửi/đăng → `clarify(yes_no)` trước, chỉ `send(confirmed=true)` sau khi user đồng ý), *Stay in scope* (toán/code/ngoài phạm vi và câu hỏi meta → không gọi tool), *Routing* (intent → tool, map tên → handle, `policy_area`, nhiều nguồn/nhiều link → gọi đủ tool), *Multi-turn* (chỉ xử lý lượt cuối, carry-over giá trị, áp dụng lời sửa).
 - **`tools.yaml` (v2):** viết lại description của cả 10 tool theo mẫu *làm gì / USE khi / DO NOT use khi*, và mô tả convention từng arg (`lookup.query` chỉ từ khóa, `topic=news`, `timeframe` theo mốc thời gian; `screenname` không có `@`; `search_type=Top` khi "top/phổ biến"; `fetch.url` đúng link user đưa). `send` ghi rõ boundary xác nhận. Tên tool, tham số, enum, default giữ nguyên → `tests/test_tool_contract.py` vẫn xanh.
-- Tool mới: (CP3 — chưa làm).
+- **Tool mới `hn_search` (CP3):** tìm story trên Hacker News qua API công khai Algolia (`https://hn.algolia.com/api/v1`, không cần key). Args: `query` (chỉ từ khóa), `sort` (`relevance` → `/search`, `date` → `/search_by_date`), `limit` (kẹp 1–20). Agent nên gọi khi user hỏi cộng đồng dev/tech đang bàn gì trên Hacker News / HN; không dùng cho tin web chung (`lookup`), tweet (`timeline`/`social_search`) hay paper (`papers`). Code: `starter_v0/tools/hn_search/`, đăng ký trong `tools/__init__.py` và `artifacts/tools.yaml`.
 
 ## 4. Kết quả — PHẦN B: Chi tiết và bằng chứng
 
@@ -109,11 +116,14 @@ Lấy từ `starter_v0/transcripts/*.transcript.json`.
 
 | Item | Evidence File | What Worked | Risk / Guardrail |
 |---|---|---|---|
-| Tool mới (`tools/<tên>/`) |  |  |  |
-| Unit test tool mới (≥ 3 test/tool) | `pytest` output (0 failed) |  |  |
+| Tool mới (`tools/<tên>/`) | `starter_v0/tools/hn_search/tool.py`, `starter_v0/tools/hn_search/TOOL.md`; đăng ký `tools/__init__.py` (`"hn_search"`) + `artifacts/tools.yaml` | Gọi Algolia HN API, map hit → item chuẩn (`title`, `url`, `source`, `summary`, `discussion_url`, `points`, `num_comments`); Ask/Show HN không có link → dùng link thảo luận HN; bỏ hit không có id | Không bao giờ raise: query rỗng/sai kiểu, `sort` ngoài enum, `limit` vô lý, HTTP lỗi, timeout → error dict hoặc giá trị mặc định an toàn; read-only, không side effect |
+| Unit test tool mới (≥ 3 test/tool) | `starter_v0/tests/test_tools_todo.py` (`test_hn_search_*`); `pytest` → **70 passed, 0 failed**, 14 skipped (stub của tool có sẵn); `pytest tests/test_tool_contract.py` → 60 passed | 3 test: (1) happy path — kiểm request gửi đi (endpoint, params) và cách map response; (2) input xấu từ model — query rỗng/`None`/số → error dict và **không** gửi request, `sort="Top"` → relevance, `limit=500` → 20, `limit="abc"` → 5, `limit=0` → 1; (3) nhánh lỗi — HTTP 503 và Timeout → error dict | Test chạy offline (mock HTTP bằng `fake_http`, mạng thật bị chặn bởi `conftest.py`) |
 | UI (lệnh chạy + link dùng thử) |  |  |  |
 
 Tool unit tests: số test đã viết, và một ví dụ lỗi mà unit test bắt được nhưng eval không bắt được.
+
+- Đã viết 3 test cho `hn_search` (tổng suite 70 passed, 0 failed).
+- Ví dụ lỗi unit test bắt được mà eval không bắt: model gọi đúng `hn_search(query="Rust", sort="date")` → eval chấm PASS vì chỉ so tên tool và args. Nhưng nếu code map nhầm `sort="date"` sang endpoint `/search` (hoặc quên kẹp `limit`, hoặc crash với Ask HN không có `url`), user vẫn nhận kết quả sai/lỗi. `test_hn_search_happy_path_sends_request_and_maps_stories` kiểm đúng endpoint `/search_by_date`, `params` và fallback link thảo luận nên bắt được các lỗi này.
 
 ### B5. Bonus Evidence
 

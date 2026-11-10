@@ -148,3 +148,18 @@ tools:
         max_pages: {type: integer, default: 5, description: "Max PDF pages to read, default 5."}
         max_chars: {type: integer, default: 8000, description: "Max characters to return, default 8000."}
       required: [arxiv_url]
+
+  # ---------------- New tool (CP3, team) ----------------
+  - name: hn_search
+    description: >-
+      Search Hacker News stories (tech/developer community) by keyword. USE when the user asks
+      what is being discussed or trending on Hacker News / HN / YCombinator ("trên Hacker News
+      đang bàn gì về Rust?", "top bài HN về LLM"). DO NOT use for general web news (use lookup),
+      X/Twitter posts (use timeline / social_search), or research papers (use papers).
+    parameters:
+      type: object
+      properties:
+        query: {type: string, default: "", description: "Topic keyword only, e.g. 'Rust', 'LLM', 'OpenAI'. Do not add 'Hacker News', 'HN', 'bài', 'mới nhất'."}
+        sort: {type: string, enum: [relevance, date], default: "relevance", description: "date when the user wants the newest / mới nhất / gần đây; relevance for top / nổi bật / most relevant."}
+        limit: {type: integer, default: 5, description: "Number of stories (1-20); use the number the user asked for, default 5."}
+      required: [query]
